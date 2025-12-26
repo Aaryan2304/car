@@ -31,7 +31,7 @@ PROJECT STRUCTURE
 -----------------
 
 ├── data_preparation.py     # Parse dataset, extract labels, create splits
-├── train.py                # Model training (MobileNetV3-Small)
+├── train.py                # Model training (MobileNetV2)
 ├── convert_tflite.py       # SavedModel → TFLite conversion
 ├── test_predict.py         # Inference script (required deliverable)
 ├── requirements.txt        # Python dependencies

@@ -1,13 +1,9 @@
 """
-Training Script V2 for ClearQuote Vehicle Viewpoint Classifier
+Vehicle Viewpoint Classification Training Script
+ClearQuote CV Engineer Assignment
 
-Improvements:
-- EfficientNetV2B0 backbone (better accuracy)
-- Gradual unfreezing strategy
-- Proper preprocessing with Keras preprocessing layers
-- Label smoothing for better generalization
-- Mixed precision training
-- Better augmentation pipeline
+Uses MobileNetV2 with transfer learning for 7-class viewpoint classification.
+Two-phase training: frozen backbone followed by fine-tuning.
 """
 
 import os
@@ -149,50 +145,8 @@ def compute_class_weights(csv_path, classes):
 
 def build_model(num_classes):
     """
-    Build model with EfficientNetV2B0 backbone.
-    
-    Using functional API for more control over the architecture.
+    Build MobileNetV2-based classifier for viewpoint detection.
     """
-    # Input layer
-    inputs = keras.Input(shape=(IMG_SIZE, IMG_SIZE, 3), name="input_image")
-    
-    # Data augmentation (only applied during training)
-    x = layers.RandomFlip("horizontal")(inputs)
-    x = layers.RandomRotation(0.02)(x)
-    x = layers.RandomBrightness(0.1)(x)
-    x = layers.RandomContrast(0.1)(x)
-    
-    # Load pretrained backbone
-    backbone = keras.applications.EfficientNetV2B0(
-        include_top=False,
-        weights='imagenet',
-        input_tensor=x,
-        pooling='avg'
-    )
-    
-    # Freeze backbone initially
-    backbone.trainable = False
-    
-    # Get backbone output
-    x = backbone.output
-    
-    # Classification head
-    x = layers.Dropout(0.3)(x)
-    x = layers.Dense(256, activation='relu', kernel_regularizer=keras.regularizers.l2(0.01))(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.Dropout(0.2)(x)
-    outputs = layers.Dense(num_classes, activation='softmax', name="predictions")(x)
-    
-    model = keras.Model(inputs, outputs, name="viewpoint_classifier")
-    
-    return model, backbone
-
-
-def build_simple_model(num_classes):
-    """
-    Build a simpler model with MobileNetV2 - often more stable.
-    """
-    # Base model
     base_model = keras.applications.MobileNetV2(
         input_shape=(IMG_SIZE, IMG_SIZE, 3),
         include_top=False,
@@ -201,23 +155,14 @@ def build_simple_model(num_classes):
     )
     base_model.trainable = False
     
-    # Build model
     inputs = keras.Input(shape=(IMG_SIZE, IMG_SIZE, 3))
-    
-    # Preprocessing
-    x = inputs
-    
-    # Backbone
-    x = base_model(x, training=False)
-    
-    # Head
+    x = base_model(inputs, training=False)
     x = layers.Dropout(0.2)(x)
     x = layers.Dense(128, activation='relu')(x)
     x = layers.Dropout(0.1)(x)
     outputs = layers.Dense(num_classes, activation='softmax')(x)
     
     model = keras.Model(inputs, outputs)
-    
     return model, base_model
 
 
@@ -268,7 +213,7 @@ def train():
     """Main training function"""
     
     print("=" * 70)
-    print("ClearQuote Vehicle Viewpoint Classifier - Training V2")
+    print("ClearQuote Vehicle Viewpoint Classifier - Training")
     print("=" * 70)
     
     # Check for GPU
@@ -297,7 +242,7 @@ def train():
     
     # Build model
     print("\nBuilding model (MobileNetV2)...")
-    model, backbone = build_simple_model(len(classes))
+    model, backbone = build_model(len(classes))
     model.summary()
     
     # Callbacks
@@ -317,7 +262,7 @@ def train():
             verbose=1
         ),
         ModelCheckpoint(
-            filepath='models/best_model_v2.keras',
+            filepath='models/best_model.keras',
             monitor='val_accuracy',
             save_best_only=True,
             verbose=1,
