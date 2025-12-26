@@ -1,0 +1,17 @@
+# ClearQuote Vehicle Viewpoint Classifier - Requirements
+
+# Core ML Framework
+tensorflow>=2.10.0
+
+# Data Processing
+pandas>=1.5.0
+numpy>=1.23.0
+
+# Scikit-learn for splits and metrics
+scikit-learn>=1.1.0
+
+# Progress bars
+tqdm>=4.64.0
+
+# Image processing (included with TensorFlow, but explicit)
+Pillow>=9.0.0

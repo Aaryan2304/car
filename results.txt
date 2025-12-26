@@ -1,0 +1,104 @@
+================================================================================
+ClearQuote Vehicle Viewpoint Classifier - Results
+================================================================================
+
+TRAINING SUMMARY
+----------------
+
+Model: MobileNetV2 (ImageNet pretrained)
+Input: 224 x 224 x 3 RGB images
+Output: 7-class classification
+Training samples: 3,179
+Validation samples: 397
+Test samples: 398
+
+
+FINAL TEST SET PERFORMANCE
+--------------------------
+
+Overall Metrics:
+- Test Loss: 0.6997
+- Test Accuracy: 84.17%
+- Macro F1 Score: 0.814
+- Weighted F1 Score: 0.843
+
+
+PER-CLASS METRICS
+-----------------
+
+Class         Precision  Recall   F1-Score  Support
+-----------------------------------------------
+Front         0.684      0.788    0.732     33
+FrontLeft     0.864      0.832    0.848     107
+FrontRight    0.899      0.851    0.874     94
+Rear          0.818      0.844    0.831     32
+RearLeft      0.807      0.902    0.852     51
+RearRight     0.947      0.871    0.908     62
+Background    0.619      0.684    0.650     19
+
+
+CONFUSION MATRIX
+----------------
+
+                Predicted
+Actual     Front  FL    FR    Rear  RL    RR    BG
+------------------------------------------------
+Front      26     2     3     0     0     0     2
+FrontLeft  5      89    3     1     6     0     3
+FrontRight 4      6     80    0     1     2     1
+Rear       1      0     0     27    2     0     2
+RearLeft   0      2     1     1     46    1     0
+RearRight  0      1     2     3     2     54    0
+Background 2      3     0     1     0     0     13
+
+
+KEY OBSERVATIONS
+----------------
+
+1. Best performing classes:
+   - RearRight: F1 = 0.908 (highest precision at 0.947)
+   - FrontRight: F1 = 0.874
+   - RearLeft: F1 = 0.852
+
+2. Areas for improvement:
+   - Background: F1 = 0.650 (limited training samples)
+   - Front: F1 = 0.732 (some confusion with FrontLeft/FrontRight)
+
+3. Common confusion patterns:
+   - FrontLeft <-> FrontRight (similar visual features)
+   - Rear <-> RearLeft/RearRight (angle ambiguity)
+
+
+TFLITE CONVERSION
+-----------------
+
+Quantization: Float16
+Model Size: 4.57 MB
+SavedModel ↔ TFLite Agreement: 100% (100/100 samples)
+
+
+TRAINING TIMELINE
+-----------------
+
+Phase 1 (Frozen Backbone):
+- Epochs: 20 (early stopped at 16)
+- Best Val Accuracy: 55.9%
+- Final LR: 5e-4
+
+Phase 2 (Fine-tuning):
+- Epochs: 15 (early stopped at 13)
+- Best Val Accuracy: 83.9%
+- Final LR: 2.5e-5
+
+
+RECOMMENDATIONS FOR FURTHER IMPROVEMENT
+---------------------------------------
+
+1. Data Augmentation: Add more aggressive augmentation during training
+2. More Data: Background class has limited samples (only 19 in test)
+3. Ensemble: Combine multiple model predictions
+4. Higher Resolution: Try 256x256 or 320x320 input size
+5. Better Backbone: Try EfficientNetV2 or ConvNeXt for better accuracy
+
+
+================================================================================
