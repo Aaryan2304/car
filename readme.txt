@@ -71,6 +71,9 @@ Step 4: Run Inference
 
    Creates: predictions.csv
 
+   For Example:
+   python test_predict.py --model models/model.tflite --labels models/saved_model/labels.txt --images dataset/5e9112c35026365e15eb871b
+
 
 MODEL ARCHITECTURE
 ------------------
