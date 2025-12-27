@@ -40,12 +40,6 @@ analyze_dataset.py
 .DS_Store
 Thumbs.db
 
-# Project-specific: Internal documentation and planning
-.github/
-docs/
-INTERVIEW_PREP.md
-roadmap.md
-
 # Project-specific: Generated files (can be recreated)
 training_history.csv
 train.csv
@@ -57,7 +51,3 @@ predictions.csv
 models/best_model.keras
 models/saved_model.keras
 models/saved_model/
-
-# Project-specific: Assignment document
-*.docx
-CV Engineer Assignment @CQ.docx
