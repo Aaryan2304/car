@@ -26,6 +26,9 @@ wheels/
 # Jupyter Notebook
 .ipynb_checkpoints
 
+# Data Analysis Script
+analyze_dataset.py
+
 # IDE
 .vscode/
 .idea/
@@ -42,7 +45,6 @@ Thumbs.db
 docs/
 INTERVIEW_PREP.md
 roadmap.md
-task.md
 
 # Project-specific: Generated files (can be recreated)
 training_history.csv

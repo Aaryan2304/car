@@ -23,26 +23,30 @@ from sklearn.model_selection import train_test_split
 DATASET_PATH = Path("dataset")
 
 # Part identity to viewpoint vote mapping (from dataset analysis)
+# Abbreviations: ws=windscreen, orvm=outside rear view mirror, wa=wheel arch, qpanel=quarter panel
 FRONT_PARTS = {
-    'frontheadlamp', 'frontbumper', 'frontbumpergrille', 'logo', 
+    'frontheadlamp', 'frontbumper', 'frontbumpergrille',  
     'bonnet', 'frontws', 'towbarcover', 'lowerbumpergrille', 'frontbumpercladding'
 }
 
 REAR_PARTS = {
-    'taillamp', 'tailgate', 'rearbumper', 'rearws', 'lefttaillamp', 
-    'righttaillamp', 'antenna', 'rearbumpercladding'
+    'taillamp', 'tailgate', 'rearbumper', 'rearws',  # rearws = rear windscreen
+    'lefttaillamp', 'righttaillamp', 'antenna', 'rearbumpercladding'
 }
 
 LEFT_PARTS = {
     'leftheadlamp', 'leftfoglamp', 'leftfrontdoor', 'leftreardoor',
-    'leftwa', 'leftrunningboard', 'leftqpanel', 'leftfrontdoorcladding',
-    'leftreardoorcladding', 'leftorvm', 'leftfender', 'leftapillar', 'lefttaillamp'
+    'leftwa',  # wa = wheel arch (curved panel above wheel)
+    'leftrunningboard', 'leftqpanel',  # qpanel = quarter panel (rear side body)
+    'leftfrontdoorcladding', 'leftreardoorcladding', 
+    'leftorvm',  # orvm = outside rear view mirror (side mirror)
+    'leftfender', 'leftapillar', 'lefttaillamp'
 }
 
 RIGHT_PARTS = {
     'rightheadlamp', 'rightfoglamp', 'rightfrontdoor', 'rightreardoor',
-    'rightwa', 'rightrunningboard', 'rightqpanel', 'rightorvm', 'rightfender',
-    'rightapillar', 'righttaillamp'
+    'rightwa', 'rightrunningboard', 'rightqpanel',  # Same abbreviations as LEFT_PARTS
+    'rightorvm', 'rightfender', 'rightapillar', 'righttaillamp'
 }
 
 # Damage/irrelevant parts to ignore for viewpoint detection

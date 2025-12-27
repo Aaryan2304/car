@@ -142,7 +142,8 @@ Labels are inferred from VIA JSON polygon annotations using voting:
 4. Combine: e.g., "Front" + "Left" = "FrontLeft"
 
 Part → Vote Mapping:
-- FRONT: frontbumper, logo, bonnet, frontws, frontbumpergrille, etc.
+- FRONT: frontbumper, bonnet, frontws, frontbumpergrille, frontheadlamp, etc.
+  (Note: 'logo' excluded since logos appear on both front AND rear of vehicles)
 - REAR: rearbumper, tailgate, rearws, taillamp, etc.
 - LEFT: leftheadlamp, leftfrontdoor, leftorvm, leftfender, etc.
 - RIGHT: rightheadlamp, rightfrontdoor, rightorvm, rightfender, etc.
