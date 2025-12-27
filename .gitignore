@@ -61,8 +61,3 @@ models/saved_model/
 # Project-specific: Assignment document
 *.docx
 CV Engineer Assignment @CQ.docx
-
-# Project-specific: Analysis images
-*.png
-image.png
-image-1.png
