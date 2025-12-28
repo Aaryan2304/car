@@ -1,12 +1,7 @@
 """
-Data Preparation Script for ClearQuote Vehicle Viewpoint Classifier
-
-This script:
-1. Parses VIA JSON annotation files from all dataset folders
-2. Infers viewpoint labels using deterministic voting heuristics
-3. Detects Background class from empty/sparse annotations
-4. Creates stratified train/val/test splits (80/10/10)
-5. Outputs: train.csv, val.csv, test.csv
+Data prep for vehicle viewpoint classifier.
+Parses VIA annotations, infers viewpoint labels via voting heuristics,
+and creates stratified train/val/test splits.
 """
 
 import json
@@ -16,67 +11,54 @@ from collections import Counter
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
-# =============================================================================
 # CONFIGURATION
-# =============================================================================
 
 DATASET_PATH = Path("dataset")
 
-# Part identity to viewpoint vote mapping (from dataset analysis)
-# Abbreviations: ws=windscreen, orvm=outside rear view mirror, wa=wheel arch, qpanel=quarter panel
+# Part identity -> viewpoint vote mapping
+# (ws=windscreen, orvm=side mirror, wa=wheel arch, qpanel=quarter panel)
 FRONT_PARTS = {
     'frontheadlamp', 'frontbumper', 'frontbumpergrille',  
     'bonnet', 'frontws', 'towbarcover', 'lowerbumpergrille', 'frontbumpercladding'
-}
+}  # NOTE: 'logo' excluded - appears on front AND rear, caused labeling issues
 
 REAR_PARTS = {
-    'taillamp', 'tailgate', 'rearbumper', 'rearws',  # rearws = rear windscreen
+    'taillamp', 'tailgate', 'rearbumper', 'rearws',
     'lefttaillamp', 'righttaillamp', 'antenna', 'rearbumpercladding'
 }
 
 LEFT_PARTS = {
     'leftheadlamp', 'leftfoglamp', 'leftfrontdoor', 'leftreardoor',
-    'leftwa',  # wa = wheel arch (curved panel above wheel)
-    'leftrunningboard', 'leftqpanel',  # qpanel = quarter panel (rear side body)
+    'leftwa', 'leftrunningboard', 'leftqpanel',
     'leftfrontdoorcladding', 'leftreardoorcladding', 
-    'leftorvm',  # orvm = outside rear view mirror (side mirror)
-    'leftfender', 'leftapillar', 'lefttaillamp'
+    'leftorvm', 'leftfender', 'leftapillar', 'lefttaillamp'
 }
 
 RIGHT_PARTS = {
     'rightheadlamp', 'rightfoglamp', 'rightfrontdoor', 'rightreardoor',
-    'rightwa', 'rightrunningboard', 'rightqpanel',  # Same abbreviations as LEFT_PARTS
+    'rightwa', 'rightrunningboard', 'rightqpanel',
     'rightorvm', 'rightfender', 'rightapillar', 'righttaillamp'
 }
 
-# Damage/irrelevant parts to ignore for viewpoint detection
+# Damage annotations - ignore for viewpoint detection
 DAMAGE_PARTS = {
     'scratch', 'dent', 'dirt', 'd2', 'bumpertorn', 'bumpertear', 
     'bumperdent', 'crack', 'clipsbroken', 'rust'
 }
 
-# All 7 classes
 CLASSES = ['Front', 'FrontLeft', 'FrontRight', 'Rear', 'RearLeft', 'RearRight', 'Background']
 
 
-# =============================================================================
 # LABEL EXTRACTION FUNCTIONS
-# =============================================================================
 
 def normalize_identity(identity: str) -> str:
-    """Normalize part identity: lowercase and strip 'partial_' prefix."""
+    """Lowercase and strip 'partial_' prefix."""
     identity = identity.lower().strip()
-    if identity.startswith('partial_'):
-        identity = identity[8:]
-    return identity
+    return identity[8:] if identity.startswith('partial_') else identity
 
 
 def extract_viewpoint_label(regions: list) -> str:
-    """
-    Extract viewpoint label from image regions using voting heuristics.
-    
-    Returns one of: Front, FrontLeft, FrontRight, Rear, RearLeft, RearRight, Background
-    """
+    """Voting heuristic: count front/rear/left/right parts to determine viewpoint."""
     if not regions:
         return 'Background'
     
@@ -126,11 +108,7 @@ def extract_viewpoint_label(regions: list) -> str:
 
 
 def parse_dataset(dataset_path: Path) -> pd.DataFrame:
-    """
-    Parse all VIA JSON files and extract image paths with inferred labels.
-    
-    Returns DataFrame with columns: filepath, filename, label
-    """
+    """Walk dataset folders, parse VIA JSON, return DataFrame of (filepath, filename, label)."""
     data = []
     
     for folder in sorted(dataset_path.iterdir()):
@@ -184,14 +162,9 @@ def create_stratified_splits(df: pd.DataFrame,
                              val_ratio: float = 0.1,
                              test_ratio: float = 0.1,
                              random_state: int = 42) -> tuple:
-    """
-    Create stratified train/val/test splits.
-    
-    Returns: (train_df, val_df, test_df)
-    """
+    """80/10/10 stratified split."""
     assert abs(train_ratio + val_ratio + test_ratio - 1.0) < 1e-6
     
-    # First split: train vs (val + test)
     train_df, temp_df = train_test_split(
         df, 
         train_size=train_ratio,
@@ -199,7 +172,6 @@ def create_stratified_splits(df: pd.DataFrame,
         random_state=random_state
     )
     
-    # Second split: val vs test (from remaining data)
     relative_val_ratio = val_ratio / (val_ratio + test_ratio)
     val_df, test_df = train_test_split(
         temp_df,
@@ -212,64 +184,47 @@ def create_stratified_splits(df: pd.DataFrame,
 
 
 def print_distribution(df: pd.DataFrame, name: str):
-    """Print label distribution for a dataset split."""
-    print(f"\n{name} Distribution ({len(df)} samples):")
+    print(f"\n{name} ({len(df)} samples):")
     counts = df['label'].value_counts().sort_index()
     for label, count in counts.items():
-        pct = 100 * count / len(df)
-        print(f"  {label:12s}: {count:4d} ({pct:5.1f}%)")
+        print(f"  {label:12s}: {count:4d} ({100*count/len(df):5.1f}%)")
 
 
-# =============================================================================
 # MAIN
-# =============================================================================
 
 def main():
     print("=" * 60)
-    print("ClearQuote Vehicle Viewpoint Classifier - Data Preparation")
+    print("Vehicle Viewpoint Classifier - Data Preparation")
     print("=" * 60)
     
-    # Parse dataset
     print(f"\nParsing dataset from: {DATASET_PATH.absolute()}")
     df = parse_dataset(DATASET_PATH)
-    print(f"Total images found: {len(df)}")
+    print(f"Total images: {len(df)}")
     
-    # Print overall distribution
-    print_distribution(df, "Overall Dataset")
+    print_distribution(df, "Overall")
     
-    # Verify all classes are present
-    missing_classes = set(CLASSES) - set(df['label'].unique())
-    if missing_classes:
-        print(f"\nWarning: Missing classes: {missing_classes}")
+    missing = set(CLASSES) - set(df['label'].unique())
+    if missing:
+        print(f"\nWarning: Missing classes: {missing}")
     
-    # Create stratified splits
     print("\nCreating stratified splits (80/10/10)...")
     train_df, val_df, test_df = create_stratified_splits(df)
     
-    # Print split distributions
-    print_distribution(train_df, "Training Set")
-    print_distribution(val_df, "Validation Set")
-    print_distribution(test_df, "Test Set")
+    print_distribution(train_df, "Train")
+    print_distribution(val_df, "Val")
+    print_distribution(test_df, "Test")
     
-    # Save to CSV
     train_df.to_csv('train.csv', index=False)
     val_df.to_csv('val.csv', index=False)
     test_df.to_csv('test.csv', index=False)
+    print(f"\nSaved: train.csv ({len(train_df)}), val.csv ({len(val_df)}), test.csv ({len(test_df)})")
     
-    print("\n" + "=" * 60)
-    print("Output files created:")
-    print(f"  - train.csv ({len(train_df)} samples)")
-    print(f"  - val.csv ({len(val_df)} samples)")
-    print(f"  - test.csv ({len(test_df)} samples)")
-    print("=" * 60)
-    
-    # Save class labels
     labels_path = Path('models/saved_model')
     labels_path.mkdir(parents=True, exist_ok=True)
     with open(labels_path / 'labels.txt', 'w') as f:
         for cls in CLASSES:
             f.write(f"{cls}\n")
-    print(f"\nLabels saved to: {labels_path / 'labels.txt'}")
+    print(f"Labels: {labels_path / 'labels.txt'}")
 
 
 if __name__ == '__main__':

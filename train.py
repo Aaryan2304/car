@@ -18,46 +18,36 @@ from sklearn.metrics import classification_report, confusion_matrix
 from pathlib import Path
 import datetime
 
-# =============================================================================
-# CONFIGURATION
-# =============================================================================
+### Config
+PATHS = {
+    'train': "train.csv",
+    'val': "val.csv",
+    'test': "test.csv",
+    'labels': "models/saved_model/labels.txt",
+    'saved_model': "models/saved_model"
+}
 
-# Paths
-TRAIN_CSV = "train.csv"
-VAL_CSV = "val.csv"
-TEST_CSV = "test.csv"
-LABELS_FILE = "models/saved_model/labels.txt"
-SAVED_MODEL_PATH = "models/saved_model"
-
-# Model hyperparameters
+# Model params
 IMG_SIZE = 224
 BATCH_SIZE = 32
 NUM_CLASSES = 7
 
-# Training phases
-PHASE1_EPOCHS = 20   # Frozen backbone
-PHASE2_EPOCHS = 15   # Gradual unfreezing
+# Two-phase training schedule
+PHASE1_EPOCHS = 20
+PHASE2_EPOCHS = 15
 INITIAL_LR = 1e-3
-FINE_TUNE_LR = 1e-4
+FINE_TUNE_LR = 1e-4  # 10x lower for fine-tuning
 
-# Label smoothing helps with noisy labels
-LABEL_SMOOTHING = 0.1
-
-# =============================================================================
-# LOAD LABELS
-# =============================================================================
+LABEL_SMOOTHING = 0.1  # helps with noisy VIA annotations
 
 def load_labels():
-    """Load class labels from labels.txt"""
-    if os.path.exists(LABELS_FILE):
-        with open(LABELS_FILE, 'r') as f:
+    if os.path.exists(PATHS['labels']):
+        with open(PATHS['labels'], 'r') as f:
             return [line.strip() for line in f if line.strip()]
     return ['Front', 'FrontLeft', 'FrontRight', 'Rear', 'RearLeft', 'RearRight', 'Background']
 
 
-# =============================================================================
 # DATA PIPELINE WITH KERAS PREPROCESSING
-# =============================================================================
 
 def create_data_augmentation():
     """Create data augmentation layer for training"""
@@ -71,26 +61,16 @@ def create_data_augmentation():
 
 
 def load_image(filepath, label):
-    """Load and preprocess a single image"""
-    # Read file
+    """Load and resize to 224x224 for MobileNet."""
     img = tf.io.read_file(filepath)
-    
-    # Decode image
     img = tf.image.decode_jpeg(img, channels=3)
-    
-    # Resize
     img = tf.image.resize(img, [IMG_SIZE, IMG_SIZE])
-    
-    # Convert to float32 [0, 255]
     img = tf.cast(img, tf.float32)
-    
     return img, label
 
 
-def preprocess_for_efficientnet(img, label):
-    """Apply EfficientNet preprocessing: scale to [0, 255] then apply tf.keras.applications preprocessing"""
-    # EfficientNet expects [0, 255] and applies its own normalization
-    # But we'll use the standard [-1, 1] normalization which works well
+def preprocess_for_mobilenet(img, label):
+    """Normalize to [-1, 1] range expected by MobileNetV2."""
     img = (img / 127.5) - 1.0
     return img, label
 
@@ -111,21 +91,15 @@ def create_dataset(csv_path, classes, is_training=False):
     if is_training:
         dataset = dataset.shuffle(buffer_size=len(filepaths), reshuffle_each_iteration=True)
     
-    # Load and preprocess images
     dataset = dataset.map(load_image, num_parallel_calls=tf.data.AUTOTUNE)
-    dataset = dataset.map(preprocess_for_efficientnet, num_parallel_calls=tf.data.AUTOTUNE)
-    
-    # Batch
-    dataset = dataset.batch(BATCH_SIZE)
-    
-    # Prefetch
-    dataset = dataset.prefetch(tf.data.AUTOTUNE)
+    dataset = dataset.map(preprocess_for_mobilenet, num_parallel_calls=tf.data.AUTOTUNE)
+    dataset = dataset.batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
     
     return dataset, len(filepaths)
 
 
 def compute_class_weights(csv_path, classes):
-    """Compute class weights for imbalanced dataset"""
+    """Sklearn balanced weights - penalizes mistakes on rare classes more."""
     df = pd.read_csv(csv_path)
     class_to_idx = {c: i for i, c in enumerate(classes)}
     labels = [class_to_idx[lbl] for lbl in df['label']]
@@ -135,18 +109,14 @@ def compute_class_weights(csv_path, classes):
         classes=np.arange(len(classes)),
         y=labels
     )
-    
     return dict(enumerate(weights))
 
 
-# =============================================================================
 # MODEL BUILDING
-# =============================================================================
 
 def build_model(num_classes):
-    """
-    Build MobileNetV2-based classifier for viewpoint detection.
-    """
+    # Tried MobileNetV3-Small first but got only 11% acc - V2 is more stable
+    # TODO: revisit V3 with different LR schedule?
     base_model = keras.applications.MobileNetV2(
         input_shape=(IMG_SIZE, IMG_SIZE, 3),
         include_top=False,
@@ -166,48 +136,31 @@ def build_model(num_classes):
     return model, base_model
 
 
-# =============================================================================
 # TRAINING WITH GRADUAL UNFREEZING
-# =============================================================================
 
 def unfreeze_layers(backbone, num_layers):
-    """Unfreeze the last num_layers of the backbone"""
-    # First, freeze all layers
+    """Unfreeze the last N layers for fine-tuning."""
     backbone.trainable = True
-    
-    # Then unfreeze only the last num_layers
     for layer in backbone.layers[:-num_layers]:
         layer.trainable = False
-    
     return backbone
 
 
 def evaluate_model(model, test_ds, classes):
-    """Evaluate model and print classification report"""
-    # Get predictions
-    y_true = []
-    y_pred = []
-    
+    y_true, y_pred = [], []
     for images, labels in test_ds:
-        predictions = model.predict(images, verbose=0)
+        preds = model.predict(images, verbose=0)
         y_true.extend(labels.numpy())
-        y_pred.extend(np.argmax(predictions, axis=1))
+        y_pred.extend(np.argmax(preds, axis=1))
     
-    # Print classification report
     print("\nClassification Report:")
     print(classification_report(y_true, y_pred, target_names=classes, digits=3))
-    
-    # Print confusion matrix
     print("\nConfusion Matrix:")
-    cm = confusion_matrix(y_true, y_pred)
-    print(cm)
-    
+    print(confusion_matrix(y_true, y_pred))
     return y_true, y_pred
 
 
-# =============================================================================
 # MAIN TRAINING
-# =============================================================================
 
 def train():
     """Main training function"""
@@ -226,16 +179,16 @@ def train():
     
     # Create datasets
     print("\nLoading datasets...")
-    train_ds, train_size = create_dataset(TRAIN_CSV, classes, is_training=True)
-    val_ds, val_size = create_dataset(VAL_CSV, classes, is_training=False)
-    test_ds, test_size = create_dataset(TEST_CSV, classes, is_training=False)
+    train_ds, train_size = create_dataset(PATHS['train'], classes, is_training=True)
+    val_ds, val_size = create_dataset(PATHS['val'], classes, is_training=False)
+    test_ds, test_size = create_dataset(PATHS['test'], classes, is_training=False)
     
     print(f"  Training samples: {train_size}")
     print(f"  Validation samples: {val_size}")
     print(f"  Test samples: {test_size}")
     
     # Compute class weights
-    class_weights = compute_class_weights(TRAIN_CSV, classes)
+    class_weights = compute_class_weights(PATHS['train'], classes)
     print(f"\nClass weights:")
     for i, w in class_weights.items():
         print(f"  {classes[i]}: {w:.3f}")
@@ -270,9 +223,8 @@ def train():
         )
     ]
     
-    # =========================================================================
     # PHASE 1: Train classification head only
-    # =========================================================================
+
     print("\n" + "=" * 70)
     print("PHASE 1: Training classification head (backbone frozen)")
     print("=" * 70)
@@ -296,9 +248,6 @@ def train():
     print("\n--- Phase 1 Evaluation ---")
     evaluate_model(model, val_ds, classes)
     
-    # =========================================================================
-    # PHASE 2: Fine-tune with gradual unfreezing
-    # =========================================================================
     print("\n" + "=" * 70)
     print("PHASE 2: Fine-tuning (gradual unfreezing)")
     print("=" * 70)
@@ -328,9 +277,8 @@ def train():
         verbose=1
     )
     
-    # =========================================================================
     # FINAL EVALUATION
-    # =========================================================================
+
     print("\n" + "=" * 70)
     print("FINAL EVALUATION ON TEST SET")
     print("=" * 70)
@@ -341,26 +289,25 @@ def train():
     
     evaluate_model(model, test_ds, classes)
     
-    # =========================================================================
     # SAVE MODEL
-    # =========================================================================
+
     print("\n" + "=" * 70)
     print("SAVING MODEL")
     print("=" * 70)
     
-    Path(SAVED_MODEL_PATH).mkdir(parents=True, exist_ok=True)
+    Path(PATHS['saved_model']).mkdir(parents=True, exist_ok=True)
     
     # Save in Keras format
-    keras_path = SAVED_MODEL_PATH + '.keras'
+    keras_path = PATHS['saved_model'] + '.keras'
     model.save(keras_path)
     print(f"\nKeras model saved to: {keras_path}")
     
     # Export as SavedModel
-    model.export(SAVED_MODEL_PATH)
-    print(f"SavedModel exported to: {SAVED_MODEL_PATH}")
+    model.export(PATHS['saved_model'])
+    print(f"SavedModel exported to: {PATHS['saved_model']}")
     
     # Save labels
-    labels_path = Path(SAVED_MODEL_PATH) / 'labels.txt'
+    labels_path = Path(PATHS['saved_model']) / 'labels.txt'
     with open(labels_path, 'w') as f:
         for cls in classes:
             f.write(f"{cls}\n")

@@ -51,3 +51,6 @@ predictions.csv
 models/best_model.keras
 models/saved_model.keras
 models/saved_model/
+
+# Dataset
+dataset/
