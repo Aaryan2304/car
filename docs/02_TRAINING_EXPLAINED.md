@@ -21,7 +21,7 @@ Instead of training a CNN from scratch (which requires millions of images), I st
 | TFLite Size | ~4.5 MB | ~2.5 MB | ~15 MB | ~100 MB |
 | Inference Speed | ~15ms | ~8ms | ~25ms | ~80ms |
 | Training Stability | ⭐⭐⭐ Very stable | ⭐ Unstable | ⭐⭐ Moderate | ⭐⭐⭐ Stable |
-| Our Test Accuracy | **84.2%** | 11% (failed) | Not tested | Too large |
+| Our Test Accuracy | **85.2%** | 11% (failed) | Not tested | Too large |
 
 **Final Choice: MobileNetV2** - Best balance of accuracy, speed, and training stability.
 
@@ -45,9 +45,9 @@ base_model = keras.applications.MobileNetV3Small(
 4. **Different Preprocessing**: Subtle normalization differences caused issues
 
 **After Switching to MobileNetV2:**
-- Phase 1 accuracy jumped from 11% → 78%
+- Phase 1 accuracy jumped from 11% → 61%
 - Training was stable and predictable
-- Final test accuracy: 84.2%
+- Final test accuracy: 85.2% (after logo removal improvement)
 
 **Interview Q: Why not use the latest MobileNetV3?**
 > I tried MobileNetV3-Small initially and got only 11% accuracy. It has architectural differences (hard-swish activation, squeeze-excite blocks) that made fine-tuning unstable with my small dataset. MobileNetV2 with its simpler architecture trained more reliably.
@@ -70,12 +70,12 @@ Poor final accuracy
 Phase 1: Freeze backbone, train head
 - Head learns to use existing features
 - Backbone stays protected
-- Result: ~78% accuracy
+- Result: ~61% accuracy
 
 Phase 2: Unfreeze backbone (keep BatchNorm frozen)
 - Head now produces meaningful gradients
 - Backbone adapts to vehicle domain
-- Result: ~84% accuracy
+- Result: ~85% accuracy
 ```
 
 **Phase 1: Feature Extraction (Frozen Backbone)**
@@ -90,14 +90,17 @@ Phase 2: Unfreeze backbone (keep BatchNorm frozen)
 - Low learning rate (1e-4)
 - 15 epochs
 
-**Training Progress:**
+**Training Progress (After Logo Removal):**
 | Phase | Epoch | Train Acc | Val Acc | Notes |
 |-------|-------|-----------|---------|-------|
-| 1 | 1 | ~15% | ~18% | Random head |
-| 1 | 10 | ~72% | ~71% | Head learning |
-| 1 | 20 | ~78% | ~77% | Head converged |
-| 2 | 25 | ~82% | ~81% | Backbone adapting |
-| 2 | 32 | ~87% | ~84% | EarlyStopping triggers |
+| 1 | 1 | ~36% | ~47% | Random head starting to learn |
+| 1 | 10 | ~73% | ~57% | Head learning |
+| 1 | 18 | ~84% | ~61% | Head converged (best Phase 1) |
+| 2 | 1 | ~58% | ~62% | Backbone unfrozen, adapting |
+| 2 | 9 | ~93% | ~82% | Rapid improvement |
+| 2 | 15 | ~99.9% | ~86% | Phase 2 complete |
+
+**Final Test Set: 85.2% accuracy**
 
 **Interview Q: Why two phases instead of end-to-end training?**
 > 1. **Prevent destroying pretrained features**: If we train everything at once with a high learning rate, the random classification head gradients can corrupt the carefully learned ImageNet features.
@@ -411,6 +414,159 @@ def evaluate_model(model, test_ds, classes):
 > - **Per-class F1 scores**: Identify weak classes
 > - **Precision vs Recall**: Understand error patterns
 > - **Macro F1**: Overall performance across classes (not biased by class sizes)
+
+---
+
+## 8.1 Understanding the Confusion Matrix
+
+### What Is a Confusion Matrix?
+
+A **confusion matrix** is a table that visualizes how well a classification model performs by showing the relationship between predicted and actual labels.
+
+```
+                    PREDICTED
+                 Fr  FL  FR  Re  RL  RR  Bg
+           Fr   [27   3   1   0   0   1   1]   ← True Front
+           FL   [ 2  93   5   0   1   3   3]   ← True FrontLeft
+ACTUAL     FR   [ 1   7  85   0   0   1   0]   ← True FrontRight
+           Re   [ 1   0   0  28   2   1   0]   ← True Rear
+           RL   [ 0   3   0   2  44   2   0]   ← True RearLeft
+           RR   [ 0   1   0   1   1  59   0]   ← True RearRight
+           Bg   [ 2   3   2   1   1   0  10]   ← True Background
+```
+
+### How to Read It
+
+- **Rows** = Actual (true) class labels
+- **Columns** = Predicted class labels
+- **Diagonal** = Correct predictions (true positives for each class)
+- **Off-diagonal** = Errors (misclassifications)
+
+**Example from above:**
+- Row "Front", Column "Front" = 27 → Model correctly predicted 27 Front images
+- Row "FrontLeft", Column "FrontRight" = 5 → Model confused 5 FrontLeft images as FrontRight
+- Row "Background", Column "Front" = 2 → Model misclassified 2 Background images as Front
+
+### Key Insights from Our Confusion Matrix
+
+| Pattern | What It Means | Why It Happens |
+|---------|---------------|----------------|
+| High diagonal values | Model is accurate for that class | Good feature learning |
+| FrontLeft ↔ FrontRight confusion | Left/right distinction is hard | Similar visual features |
+| Background errors scattered | Background is heterogeneous | Defined by absence, not presence |
+| Rear confused with RearLeft/RearRight | Subtle angle differences | Overlapping features |
+
+### Interview Q: What does the confusion matrix tell us that accuracy doesn't?
+
+> **Accuracy** gives one number (85.2%). The **confusion matrix** shows:
+> 1. **Which classes are confused with each other** - FrontLeft/FrontRight confusion suggests we might need more discriminative features
+> 2. **Error patterns** - If all errors are between adjacent viewpoints (FrontLeft ↔ Front), that's reasonable. Random errors would be concerning.
+> 3. **Class-specific performance** - Background might have 70% accuracy while RearRight has 95%
+
+### Calculating Metrics from Confusion Matrix
+
+For any class (e.g., FrontLeft):
+
+```
+Precision = TP / (TP + FP) = Diagonal / Column Sum
+         = "Of all FrontLeft predictions, how many were correct?"
+
+Recall    = TP / (TP + FN) = Diagonal / Row Sum
+         = "Of all actual FrontLeft images, how many did we find?"
+
+F1 Score  = 2 × (Precision × Recall) / (Precision + Recall)
+         = Harmonic mean of precision and recall
+```
+
+**Example for FrontLeft (from matrix above):**
+- TP = 93 (diagonal)
+- FP = 3+7+0+3+1+3 = 17 (column sum - diagonal)
+- FN = 2+5+0+1+3+3 = 14 (row sum - diagonal)
+- Precision = 93 / (93 + 17) = 0.845
+- Recall = 93 / (93 + 14) = 0.869
+- F1 = 2 × (0.845 × 0.869) / (0.845 + 0.869) = 0.857
+
+### Interview Q: When is the confusion matrix more useful than metrics?
+
+> 1. **Debugging specific failures**: "Why is Background F1 so low?" → Check which classes Background is confused with
+> 2. **Business decisions**: If confusing Rear with RearLeft is acceptable but confusing Front with Rear is critical, the matrix shows this
+> 3. **Data collection guidance**: High FrontLeft ↔ FrontRight confusion suggests collecting more training images with clear left/right distinctions
+
+---
+
+## 8.2 Which Metrics Do We Consider for 2-Phase Training?
+
+### The Final Metrics Question
+
+With two training phases, which metrics should we report?
+
+**Answer: We report metrics from the FINAL model (after Phase 2), evaluated on the TEST set.**
+
+### Why Not Phase 1 Metrics?
+
+| Phase | Purpose | Metrics Meaning |
+|-------|---------|-----------------|
+| Phase 1 | Train classification head only | Head learns to use frozen ImageNet features |
+| Phase 2 | Fine-tune entire model | Model specializes for vehicle viewpoints |
+| **Final** | Best val_accuracy model restored | **This is what we deploy** |
+
+Phase 1 metrics (~61% accuracy) show the head is learning, but the backbone hasn't adapted to vehicle features yet. The Phase 2 final model (~85.2% accuracy) is the actual deliverable.
+
+### How EarlyStopping Affects Final Metrics
+
+```python
+EarlyStopping(
+    monitor='val_accuracy',
+    patience=7,
+    restore_best_weights=True,  # ← KEY SETTING
+    mode='max'
+)
+```
+
+**Critical**: `restore_best_weights=True` means:
+1. Training might run for 32 epochs
+2. Best val_accuracy might be at epoch 28
+3. After EarlyStopping triggers, model weights are **rolled back to epoch 28**
+4. The saved model and reported metrics are from **epoch 28**, not epoch 32
+
+### What We Report
+
+```
+Test Set Evaluation (Final Model):
+- Overall Accuracy: 85.2%
+- Macro F1 Score: 0.819 (average F1 across all classes)
+- Weighted F1 Score: 0.854 (F1 weighted by class frequency)
+```
+
+### Interview Q: Why Macro F1 and Weighted F1?
+
+> - **Macro F1 (0.819)**: Simple average of all class F1 scores. Treats all classes equally. If Background has F1=0.60, it hurts the macro average even though Background is rare.
+>
+> - **Weighted F1 (0.854)**: Weighted by class support (sample count). Better reflects overall performance since FrontLeft (largest class) contributes more.
+>
+> Both are useful:
+> - **Macro F1** = "How well do we do on each class equally?"
+> - **Weighted F1** = "How well do we do on average for a random image?"
+
+### Interview Q: Why evaluate on test set, not validation set?
+
+> The validation set was used for:
+> - EarlyStopping decisions
+> - Learning rate adjustments
+> - Model checkpointing
+>
+> The test set was **never seen** during training or hyperparameter tuning. It gives an unbiased estimate of real-world performance. Reporting validation accuracy would be optimistic bias.
+
+### Metrics Summary Table (After Logo Removal)
+
+| Metric | Value | What It Measures | When to Use |
+|--------|-------|------------------|-------------|
+| Test Accuracy | 85.2% | Overall correctness | General performance |
+| Macro F1 | 0.819 | Average class performance | Class-balanced evaluation |
+| Weighted F1 | 0.854 | Sample-weighted performance | Real-world performance estimate |
+| Per-class F1 | 0.60-0.90 | Individual class performance | Identify weak classes |
+| TFLite Agreement | 99.0% | Conversion quality | Deployment validation |
+| Avg Confidence | 99.81% | Model certainty | Reliability assessment |
 
 ---
 

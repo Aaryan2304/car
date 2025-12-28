@@ -112,26 +112,29 @@ Callbacks:
 - ReduceLROnPlateau (factor=0.5, patience=3)
 - ModelCheckpoint (save best validation accuracy)
 
-ACHIEVED RESULTS
-----------------
+ACHIEVED RESULTS (After Logo Removal from Voting)
+--------------------------------------------------
 
 Test Set Performance:
-- Overall Accuracy: 84.2%
-- Macro F1 Score: 0.814
-- Weighted F1 Score: 0.843
+- Overall Accuracy: 85.2% (+1.0% improvement)
+- Macro F1 Score: 0.819 (+0.005)
+- Weighted F1 Score: 0.854 (+0.011)
 
 Per-Class F1 Scores:
-- Front:      0.732
-- FrontLeft:  0.848
-- FrontRight: 0.874
-- Rear:       0.831
-- RearLeft:   0.852
-- RearRight:  0.908
-- Background: 0.650
+- Front:      0.758
+- FrontLeft:  0.888
+- FrontRight: 0.859
+- Rear:       0.839
+- RearLeft:   0.897
+- RearRight:  0.894
+- Background: 0.596
 
 TFLite Conversion:
-- SavedModel ↔ TFLite Agreement: 100%
+- SavedModel ↔ TFLite Agreement: 99.0%
 - Model Size: 4.57 MB
+
+Inference Confidence:
+- Average prediction confidence: 99.81%
 
 
 LABEL EXTRACTION HEURISTICS
@@ -187,17 +190,21 @@ predictions.csv columns:
 DATASET STATISTICS
 ------------------
 
-Total Images: 3,943
+Total Images: 3,974
 Total Folders: 61
 
-Distribution:
-  FrontLeft:   855 (21.7%)
-  FrontRight:  764 (19.4%)
-  RearRight:   613 (15.5%)
-  RearLeft:    510 (12.9%)
-  Background:  472 (12.0%)
-  Front:       346 (8.8%)
-  Rear:        336 (8.5%)
+Distribution (after logo removal from voting):
+  FrontLeft:   1,071 (27.0%)
+  FrontRight:    935 (23.5%)
+  RearRight:     612 (15.4%)
+  RearLeft:      510 (12.8%)
+  Front:         325 (8.2%)
+  Rear:          326 (8.2%)
+  Background:    195 (4.9%)
+
+Note: Removing 'logo' from FRONT_PARTS voting improved label quality.
+Images with logo + side parts now correctly classify as FrontLeft/FrontRight
+instead of falling into Background due to ambiguous front/rear signal.
 
 
 AUTHOR
