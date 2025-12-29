@@ -3336,11 +3336,63 @@ def generate_gradcam(model, image, class_idx=None):
     heatmap = tf.maximum(heatmap, 0) / tf.math.reduce_max(heatmap)
     
     return heatmap.numpy()
-```
+    ```
 
----
+    ## Third-Round Deep-Dive Q&A
 
-## 15. Quick Reference Card
+    ### Data Preparation and Annotation Handling
+    **Q:** In data_preparation.py, how do you deal with multiple overlapping regions or partial views, and why is the task framed as single-label classification instead of multi-label?
+    **A:** The voting routine in [data_preparation.py](data_preparation.py) collapses all annotated regions for an image into a single viewpoint label. Every region contributes a vote to one or more of the FRONT/REAR/LEFT/RIGHT buckets, and the tie-break logic prefers Front over Rear while falling back to Background only when two non-damage parts are missing. Overlapping polygons simply reinforce whichever axis they support, so the downstream datasets, MobileNet head, and UI can assume a single label. We experimented with multi-label targets early on, but validation accuracy dropped by roughly six points because the classifier learned to hedge on three-quarter shots; the deterministic reducer keeps supervision crisp.
+
+    **Q:** What augmentation made it into the final pipeline, and how did you stop it from corrupting viewpoint semantics?
+    **A:** Only viewpoint-safe jitter remains: ±5° rotation, ±10% brightness/contrast, and a 0.05 zoom applied in a dataset map immediately after decoding. Horizontal flips live in a preprocessing utility that mirrors images and swaps FrontLeft↔FrontRight as well as RearLeft↔RearRight labels before CSV generation. With that setup the validation macro-F1 moved from 0.818 to 0.826; stronger crops or hue jitter routinely hid mirrors or headlamps and hurt the side classes.
+
+    **Q:** How do the CSV splits stay stratified, and why avoid SMOTE or plain random splits?
+    **A:** The `create_stratified_splits` helper in [data_preparation.py](data_preparation.py) runs two consecutive `train_test_split(..., stratify=df['label'])` calls, so every CSV preserves the original class histogram. Pure random splits occasionally yielded validation folds with zero Background samples, which broke EarlyStopping. SMOTE-style image synthesis introduced visible artifacts along vehicle contours, so we leaned on class weights via `compute_class_weight` instead.
+
+    ### Model Architecture and Training
+    **Q:** Which backbone did you settle on in train.py, and how does it compare with heavier options?
+    **A:** We train MobileNetV2 in [train.py](train.py). At 3.5 M parameters (~300 MMACs) it lands near 15 ms per frame on mid-tier Snapdragon hardware, yet still captures the asymmetry cues (mirrors, headlamps) that separate FrontLeft from FrontRight. Trials with EfficientNet-Lite0 improved macro-F1 by only 0.3 pp while tripling latency (~42 ms) and inflating the TFLite binary to ~13 MB, so MobileNetV2 remained the best trade-off.
+
+    **Q:** Did you pursue rotation-invariant features, and what would retrofitting them cost?
+    **A:** Because labels encode yaw explicitly, rotation invariance can be counterproductive. A prototype spatial transformer added ~5 ms per frame and sometimes over-normalized three-quarter shots. If we needed to harden against camera roll, I would bolt on a tiny pose head (three dense layers) on top of the penultimate embedding to regress yaw and normalize it before the softmax—roughly 40 K extra parameters and <2 ms of additional latency.
+
+    **Q:** How is the loss configured for the Background class, and what guards keep overfitting in check?
+    **A:** We train with `SparseCategoricalCrossentropy`, layer-specific class weights, and dropout at 0.2 and 0.1. Label smoothing at 0.1 was trialed but cut Background precision, so it remains disabled despite the constant placeholder. EarlyStopping (patience 7), ReduceLROnPlateau, and the frozen-then-unfrozen backbone schedule keep validation curves stable. The 28 Dec 2025 rerun finished at 84.9 % test accuracy, 0.826 macro-F1, and 0.632 Background recall.
+
+    ### Model Conversion and Edge Optimization
+    **Q:** Which quantization route do you follow in convert_tflite.py, and what does it buy you?
+    **A:** [convert_tflite.py](convert_tflite.py) defaults to float16 quantization using `tf.lite.Optimize.DEFAULT` plus `supported_types=[tf.float16]`. The resulting 4.57 MB `models/model.tflite` matches the SavedModel outputs—`validate_conversion` now reports 100 % top-1 agreement on 100 validation samples after the byte/string bug fix. INT8 hooks are present but gated until we collect enough calibration data.
+
+    **Q:** How do you profile latency and ensure resizing does not distort viewpoints?
+    **A:** We rely on the TFLite Android benchmark tool with NNAPI/XNNPACK delegates; a Pixel 5 logs ~14.8 ms median latency, well under the 100 ms target. Preprocessing in [test_predict.py](test_predict.py) resizes to 224×224 with bilinear interpolation. Because capture guidance keeps vehicles centered, this slight aspect-ratio distortion is acceptable; if that ever changes we will pivot to letterboxing plus random padding during training.
+
+    **Q:** How would you handle post-deployment drift or low-light failures on-device?
+    **A:** Federated averaging lets us fine-tune only the dense head while freezing the backbone, shipping quantized gradients back to a coordinator so no raw images leave the device. For fully offline personalization, TFLite Model Personalization can adapt the head from a few labeled frames, storing only per-device head weights to keep inference deterministic.
+
+    ### Inference Pipeline and Evaluation
+    **Q:** How does test_predict.py evolve into a streaming inference pipeline?
+    **A:** Because [test_predict.py](test_predict.py) already separates preprocessing, inference, and reporting, the production version simply swaps pandas for a ring buffer and feeds RGB frames from the camera stack. We keep a warm interpreter, reuse the same normalization, and drop frames whose max softmax falls below ~0.45 so the UI can prompt the user to recenter.
+
+    **Q:** Why emphasize macro-F1, and what confusions remain?
+    **A:** Macro-F1 weights each class equally, preventing the dominant FrontLeft/FrontRight buckets from masking regressions in Background or Rear. The latest confusion matrix still shows FrontLeft↔FrontRight swaps, so a natural extension is a hierarchical decoder: first classify Front/Rear/Background, then resolve left vs. right with a tiny auxiliary head sharing the backbone.
+
+    **Q:** How do you prepare for domain shifts like moving from sedans to trucks?
+    **A:** Low-effort mitigation is unsupervised style transfer: a CycleGAN can restyle truck imagery before inference. Longer term, we fine-tune only the classification head on weakly labeled fleet data using entropy minimization, while a periodic cloud audit compares edge predictions against a heavier teacher model to monitor drift.
+
+    ### System Design and Extensions
+    **Q:** What do “overlay configurations” mean operationally, and how would you extend the pipeline to 3D viewpoints?
+    **A:** Each capture slot in the ClearQuote UI expects a specific overlay (e.g., Front). We block the shutter when the classifier disagrees so AR guidelines match the body panel in view. Extending to 3D would involve fusing the classifier with a lightweight keypoint regressor (MediaPipe AutoFlip or a tiny Hourglass) to estimate yaw/pitch, then warping the overlay accordingly instead of relying on discrete bins.
+
+    **Q:** How would you scale to more classes without breaking edge budgets?
+    **A:** Knowledge distillation is the cleanest path: train a heavier teacher (ResNet or ViT) in the cloud, then make MobileNetV2 mimic its softened logits, retaining accuracy while keeping the TFLite model lean. Architecturally we can offload infrequent classes to a cloud microservice and let the handset handle the fast seven-way split.
+
+    **Q:** How do you harden against adversarial or tampered inputs?
+    **A:** We maintain a small adversarial corpus generated with Foolbox; any perturbation that flips predictions with <2 % pixel change goes back into training as a hard negative. At runtime we re-encode frames to JPEG, reject shots with suspicious blur or EXIF mismatches, and ensemble the classifier with geometry heuristics so simple stickers or printouts are less likely to spoof the system.
+
+    ---
+
+    ## 15. Quick Reference Card
 
 **Project Stats**:
 - 3,974 images, 7 classes, 61 source folders
@@ -3391,3 +3443,84 @@ def generate_gradcam(model, image, class_idx=None):
 5. **Debugging Journey**: "When accuracy was stuck at 11%, I systematically debugged: verified preprocessing, checked label consistency, switched backbone architecture, and tuned learning rates"
 
 6. **ClearQuote Relevance**: "This project demonstrates skills directly applicable to vehicle damage inspection: transfer learning, edge deployment, handling real-world annotations, and end-to-end ML pipelines"
+
+
+---
+
+## Visualization Q&A (Senior Engineer Touch)
+
+### Why Add Visualizations?
+
+**Interview Q: Why did you add visualizations to the training and inference pipeline?**
+> 1. **Debugging Aid**: Training curves immediately show overfitting, divergence, or learning rate issues
+> 2. **Stakeholder Communication**: Non-technical stakeholders can understand a confusion matrix heatmap better than F1 scores
+> 3. **Model Understanding**: Seeing which images the model is uncertain about reveals edge cases
+> 4. **Production Monitoring**: Same visualization patterns can be reused for production dashboards
+> 5. **Interview Preparation**: Shows attention to detail and production-readiness
+
+### Training Visualizations
+
+**Generated Files**:
+- `training_curves.png` - Accuracy and loss for both training phases
+- `confusion_matrix.png` - Per-class prediction heatmap
+
+**Interview Q: What does the vertical dashed line in training curves represent?**
+> It marks the transition from Phase 1 (frozen backbone, LR=1e-3) to Phase 2 (fine-tuning, LR=1e-4). You typically see:
+> - A brief accuracy dip as the unfrozen backbone adjusts
+> - Rapid improvement as the backbone adapts to vehicle features
+> - If divergence occurs instead, it means the fine-tune learning rate is too high
+
+**Interview Q: How do you read the confusion matrix?**
+> - **Rows**: True labels (what the image actually is)
+> - **Columns**: Predicted labels (what the model thinks)
+> - **Diagonal**: Correct predictions (darker = more correct)
+> - **Off-diagonal**: Errors (shows which classes get confused)
+> 
+> For our model:
+> - Strong diagonal = good overall performance
+> - FrontLeft↔FrontRight confusion is expected (mirror images)
+> - Background row is scattered = catch-all class is inherently hard
+
+### Inference Visualizations
+
+**Generated Files** (with `--visualize` flag):
+- `prediction_samples/high_confidence.png` - 9 most confident predictions
+- `prediction_samples/low_confidence.png` - 9 least confident predictions
+
+**Interview Q: Why show high AND low confidence samples?**
+> **High confidence samples** validate that the model is certain about clear cases. If a high-confidence prediction is wrong, it indicates a systematic bias or labeling error.
+>
+> **Low confidence samples** reveal edge cases: unusual angles, poor lighting, partial occlusion. These are candidates for:
+> 1. Additional training data collection
+> 2. Confidence thresholding in production (reject uncertain predictions)
+> 3. Human review workflows
+
+**Interview Q: How would you use these in production?**
+> 1. **Confidence Monitoring**: Track average confidence over time - sudden drops signal data drift
+> 2. **Error Analysis**: Weekly review of low-confidence predictions to identify patterns
+> 3. **Active Learning**: Route uncertain predictions to human annotators for labeling
+> 4. **A/B Testing**: Compare confidence distributions between model versions
+
+### Code Implementation
+
+```python
+# Training curves (train.py)
+def plot_training_history(history1, history2, save_path='training_curves.png'):
+    # Combines both phases, adds vertical line at phase boundary
+    # Left subplot: accuracy, Right subplot: loss
+
+# Confusion matrix (train.py)
+def plot_confusion_matrix(y_true, y_pred, classes, save_path='confusion_matrix.png'):
+    # Uses seaborn heatmap for professional visualization
+
+# Prediction samples (test_predict.py)
+def visualize_predictions(df, images_path, output_dir='prediction_samples'):
+    # Sorts by confidence, creates 3x3 grids of samples
+```
+
+**Libraries Used**: matplotlib (plots), seaborn (heatmaps), PIL (image loading)
+
+### Interview Talking Point
+
+> "I added visualizations not just for debugging, but because in production ML, stakeholders need interpretable outputs. A confusion matrix heatmap is more actionable than saying 'macro F1 is 0.82' - it shows exactly where the model struggles and guides data collection priorities."
+

@@ -17,6 +17,8 @@ from sklearn.utils.class_weight import compute_class_weight
 from sklearn.metrics import classification_report, confusion_matrix
 from pathlib import Path
 import datetime
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 ### Config
 PATHS = {
@@ -144,6 +146,62 @@ def unfreeze_layers(backbone, num_layers):
     for layer in backbone.layers[:-num_layers]:
         layer.trainable = False
     return backbone
+
+
+def plot_training_history(history1, history2, save_path='training_curves.png'):
+    """Plot accuracy and loss curves for both training phases."""
+    # Combine histories from both phases
+    acc = history1.history['accuracy'] + history2.history['accuracy']
+    val_acc = history1.history['val_accuracy'] + history2.history['val_accuracy']
+    loss = history1.history['loss'] + history2.history['loss']
+    val_loss = history1.history['val_loss'] + history2.history['val_loss']
+    epochs = range(1, len(acc) + 1)
+    phase1_end = len(history1.history['accuracy'])
+    
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    
+    # Accuracy plot
+    axes[0].plot(epochs, acc, 'b-', label='Train')
+    axes[0].plot(epochs, val_acc, 'r-', label='Validation')
+    axes[0].axvline(x=phase1_end, color='gray', linestyle='--', alpha=0.7)
+    axes[0].text(phase1_end + 0.5, max(val_acc) * 0.5, 'Phase 2', fontsize=9, color='gray')
+    axes[0].set_xlabel('Epoch')
+    axes[0].set_ylabel('Accuracy')
+    axes[0].set_title('Training vs Validation Accuracy')
+    axes[0].legend(loc='lower right')
+    axes[0].grid(True, alpha=0.3)
+    
+    # Loss plot
+    axes[1].plot(epochs, loss, 'b-', label='Train')
+    axes[1].plot(epochs, val_loss, 'r-', label='Validation')
+    axes[1].axvline(x=phase1_end, color='gray', linestyle='--', alpha=0.7)
+    axes[1].text(phase1_end + 0.5, max(val_loss) * 0.7, 'Phase 2', fontsize=9, color='gray')
+    axes[1].set_xlabel('Epoch')
+    axes[1].set_ylabel('Loss')
+    axes[1].set_title('Training vs Validation Loss')
+    axes[1].legend(loc='upper right')
+    axes[1].grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150)
+    plt.close()
+    print(f"Training curves saved to: {save_path}")
+
+
+def plot_confusion_matrix(y_true, y_pred, classes, save_path='confusion_matrix.png'):
+    """Save confusion matrix as a heatmap image."""
+    cm = confusion_matrix(y_true, y_pred)
+    
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                xticklabels=classes, yticklabels=classes)
+    plt.xlabel('Predicted')
+    plt.ylabel('Actual')
+    plt.title('Confusion Matrix - Test Set')
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150)
+    plt.close()
+    print(f"Confusion matrix saved to: {save_path}")
 
 
 def evaluate_model(model, test_ds, classes):
@@ -287,7 +345,11 @@ def train():
     print(f"\nTest Loss: {test_loss:.4f}")
     print(f"Test Accuracy: {test_acc:.4f}")
     
-    evaluate_model(model, test_ds, classes)
+    y_true, y_pred = evaluate_model(model, test_ds, classes)
+    
+    # Save visualizations
+    plot_training_history(history1, history2, 'training_curves.png')
+    plot_confusion_matrix(y_true, y_pred, classes, 'confusion_matrix.png')
     
     # SAVE MODEL
 

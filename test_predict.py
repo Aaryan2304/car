@@ -12,6 +12,8 @@ import pandas as pd
 import tensorflow as tf
 from pathlib import Path
 from tqdm import tqdm
+import matplotlib.pyplot as plt
+from PIL import Image
 
 # CONFIGURATION
 
@@ -111,9 +113,65 @@ def get_image_files(folder_path):
     return sorted(set(files))
 
 
+def visualize_predictions(df, images_path, output_dir='prediction_samples'):
+    """Save grid of sample predictions - best and worst confidence."""
+    Path(output_dir).mkdir(exist_ok=True)
+    
+    valid_df = df[df['prediction'] != 'ERROR'].copy()
+    if len(valid_df) < 5:
+        print("Not enough valid predictions to visualize.")
+        return
+    
+    # Get top 10 most and least confident predictions
+    top_conf = valid_df.nlargest(min(10, len(valid_df)), 'score')
+    low_conf = valid_df.nsmallest(min(10, len(valid_df)), 'score')
+    
+    def make_grid(subset, title, filename):
+        n = len(subset)
+        cols = min(5, n)
+        rows = (n + cols - 1) // cols
+        fig, axes = plt.subplots(rows, cols, figsize=(3 * cols, 3.5 * rows))
+        if rows == 1 and cols == 1:
+            axes = np.array([[axes]])
+        elif rows == 1:
+            axes = axes.reshape(1, -1)
+        elif cols == 1:
+            axes = axes.reshape(-1, 1)
+        
+        for idx, (_, row) in enumerate(subset.iterrows()):
+            r, c = idx // cols, idx % cols
+            ax = axes[r, c]
+            
+            # Find the actual image file
+            matches = list(Path(images_path).rglob(row['image_name']))
+            if not matches:
+                ax.axis('off')
+                continue
+            
+            img = Image.open(matches[0]).convert('RGB')
+            ax.imshow(img)
+            color = 'green' if row['score'] > 0.8 else 'orange' if row['score'] > 0.5 else 'red'
+            ax.set_title(f"{row['prediction']}\n{row['score']:.2%}", fontsize=10, color=color)
+            ax.axis('off')
+        
+        # Hide empty subplots
+        for idx in range(n, rows * cols):
+            axes[idx // cols, idx % cols].axis('off')
+        
+        fig.suptitle(title, fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        save_path = Path(output_dir) / filename
+        plt.savefig(save_path, dpi=120, bbox_inches='tight')
+        plt.close()
+        print(f"Saved: {save_path}")
+    
+    make_grid(top_conf, 'High Confidence Predictions', 'high_confidence.png')
+    make_grid(low_conf, 'Low Confidence Predictions (Review These)', 'low_confidence.png')
+
+
 # MAIN PREDICTION
 
-def predict_images(model_path, labels_path, images_path, output_path='predictions.csv'):
+def predict_images(model_path, labels_path, images_path, output_path='predictions.csv', visualize=False):
     """Run inference on all images in a folder."""
     print("Viewpoint Classifier - Inference")
     print("=" * 40)
@@ -156,6 +214,10 @@ def predict_images(model_path, labels_path, images_path, output_path='prediction
     
     avg_conf = df[df['prediction'] != 'ERROR']['score'].mean()
     print(f"Avg confidence: {avg_conf:.4f}")
+    
+    if visualize:
+        visualize_predictions(df, images_path)
+    
     return df
 
 
@@ -167,6 +229,8 @@ def main():
     parser.add_argument('--labels', '-l', required=True, help='Path to labels.txt')
     parser.add_argument('--images', '-i', required=True, help='Folder with images')
     parser.add_argument('--output', '-o', default='predictions.csv', help='Output CSV')
+    parser.add_argument('--visualize', '-v', action='store_true', 
+                        help='Save sample prediction images for review')
     args = parser.parse_args()
     
     for path, name in [(args.model, 'Model'), (args.labels, 'Labels'), (args.images, 'Images')]:
@@ -174,7 +238,7 @@ def main():
             print(f"Error: {name} not found: {path}")
             return 1
     
-    df = predict_images(args.model, args.labels, args.images, args.output)
+    df = predict_images(args.model, args.labels, args.images, args.output, args.visualize)
     return 0 if df is not None else 1
 
 

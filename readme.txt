@@ -1,41 +1,40 @@
-# Vehicle Viewpoint Classifier
+Vehicle Viewpoint Classifier
 
-MobileNetV2-based classifier for 7 vehicle viewpoints (Front, FrontLeft, FrontRight, 
-Rear, RearLeft, RearRight, Background), optimized for TFLite edge deployment.
+MobileNetV2-based classifier for 7 vehicle viewpoints (Front, FrontLeft, FrontRight, Rear, RearLeft, RearRight, Background), optimized for TFLite edge deployment.
 
-## Setup
+1. Setup:
 
-```bash
+```
 conda create -n vehicle_classifier python=3.9
 conda activate vehicle_classifier
 pip install -r requirements.txt
 ```
 
-## Usage
+2. Usage:
 
-Generate training data from VIA annotations:
-```bash
+a. Generate training data from VIA annotations:
+```
 python data_preparation.py
 ```
 
-Train the model (two-phase: frozen backbone, then fine-tune):
-```bash
+b. Train the model (two-phase: frozen backbone, then fine-tune):
+```
 python train.py
 ```
 
-Convert to TFLite:
-```bash
+c. Convert to TFLite:
+```
 python convert_tflite.py
 ```
 
-Run inference:
-```bash
+d. Run inference:
+```
 python test_predict.py --model models/model.tflite \
                        --labels models/saved_model/labels.txt \
                        --images dataset/5e9112c35026365e15eb871b
 ```
 
-## Project Structure
+3. Project Structure:
 
 ```
 ├── data_preparation.py     # VIA JSON parsing, label extraction, splits
@@ -49,34 +48,33 @@ python test_predict.py --model models/model.tflite \
 └── dataset/                # Raw VIA annotations
 ```
 
-## Model
+4. Model:
 
-- **Base**: MobileNetV2 (ImageNet pretrained)
-- **Input**: 224x224x3, normalized to [-1, 1]
-- **Head**: GAP -> Dropout(0.2) -> Dense(128) -> Dropout(0.1) -> Softmax(7)
+- Base: MobileNetV2 (ImageNet pretrained)
+- Input: 224x224x3, normalized to [-1, 1]
+- Head: GAP -> Dropout(0.2) -> Dense(128) -> Dropout(0.1) -> Softmax(7)
 
-## Training
+5: Training
 
 Two-phase transfer learning:
-1. **Phase 1**: Backbone frozen, train head only (20 epochs, LR=1e-3)
-2. **Phase 2**: Full fine-tune with BatchNorm frozen (15 epochs, LR=1e-4)
+1. Phase 1: Backbone frozen, train head only (20 epochs, LR=1e-3)
+2. Phase 2: Full fine-tune with BatchNorm frozen (15 epochs, LR=1e-4)
 
 Uses balanced class weights, EarlyStopping (patience=7), ReduceLROnPlateau.
 
-## Results
+6: Results
 
 | Metric | Value |
 |--------|-------|
-| Test Accuracy | 84.9% |
-| Macro F1 | 0.826 |
-| Weighted F1 | 0.849 |
+| Test Accuracy | 85.18% |
+| Macro F1 | 0.819 |
+| Weighted F1 | 0.854 |
 | TFLite Agreement | 100% |
 | Model Size | 4.57 MB |
 
-Per-class F1: Front 0.78, FrontLeft 0.89, FrontRight 0.82, Rear 0.90, 
-RearLeft 0.89, RearRight 0.88, Background 0.63
+Per-class F1: Front 0.82, FrontLeft 0.89, FrontRight 0.84, Rear 0.81, RearLeft 0.91, RearRight 0.91, Background 0.56
 
-## Label Extraction
+7: Label Extraction
 
 Viewpoint labels are inferred from VIA polygon annotations via voting:
 - Count parts in FRONT_PARTS, REAR_PARTS, LEFT_PARTS, RIGHT_PARTS sets
@@ -86,13 +84,12 @@ Viewpoint labels are inferred from VIA polygon annotations via voting:
 
 Note: 'logo' excluded from voting since it appears on both front and rear bumpers.
 
-## Dataset
+8. Dataset
 
 3,974 images across 61 folders (80/10/10 split).
 
-Distribution: FrontLeft 27%, FrontRight 24%, RearRight 15%, RearLeft 13%, 
-Front 8%, Rear 8%, Background 5%
+Distribution: FrontLeft 27%, FrontRight 24%, RearRight 15%, RearLeft 13%, Front 8%, Rear 8%, Background 5%
 
-## Output
+9. Output
 
 `predictions.csv`: image_name, prediction, score (confidence 0-1)

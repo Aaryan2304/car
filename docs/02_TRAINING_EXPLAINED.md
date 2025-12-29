@@ -630,3 +630,152 @@ In my first attempt, I got only 11% test accuracy. Here's what went wrong and ho
 > - MobileNetV2 is optimized for mobile inference
 > - TFLite conversion with Float16 quantization
 > - Could further optimize with INT8 quantization or TensorRT
+
+---
+
+## 12. Training Visualizations
+
+The training script automatically generates two visualizations after training completes.
+
+### Training Curves (`training_curves.png`)
+
+```python
+def plot_training_history(history1, history2, save_path='training_curves.png'):
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    
+    # Combine both phases with phase separator
+    acc1 = history1.history['accuracy']
+    val_acc1 = history1.history['val_accuracy']
+    acc2 = history2.history['accuracy']
+    val_acc2 = history2.history['val_accuracy']
+    
+    all_acc = acc1 + acc2
+    all_val_acc = val_acc1 + val_acc2
+    epochs = range(1, len(all_acc) + 1)
+    phase1_end = len(acc1)
+```
+
+**What this shows:**
+- **Left plot**: Training and validation accuracy over both phases
+- **Right plot**: Training and validation loss over both phases
+- **Vertical dashed line**: Marks the transition from Phase 1 (frozen backbone) to Phase 2 (fine-tuning)
+
+**How to interpret:**
+- If training acc >> validation acc: Overfitting
+- If both increase together: Healthy training
+- If Phase 2 causes a spike then improvement: Normal fine-tuning behavior
+- If Phase 2 causes divergence: Learning rate too high
+
+**Interview Q: Why plot both phases together?**
+> It gives a complete picture of the training trajectory. The vertical line shows exactly when fine-tuning began, and you can see if the model improved or degraded from unfreezing the backbone.
+
+### Confusion Matrix (`confusion_matrix.png`)
+
+```python
+def plot_confusion_matrix(y_true, y_pred, classes, save_path='confusion_matrix.png'):
+    cm = confusion_matrix(y_true, y_pred)
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                xticklabels=classes, yticklabels=classes)
+```
+
+**What this shows:**
+- Rows: Actual class labels
+- Columns: Predicted class labels
+- Diagonal: Correct predictions (should be high)
+- Off-diagonal: Misclassifications (shows confusion patterns)
+
+**How to interpret our results:**
+
+| Pattern | What it means |
+|---------|---------------|
+| Strong diagonal | Model distinguishes classes well |
+| FrontLeft<->FrontRight confusion | Expected - similar visual features |
+| Background low recall | Model struggles to identify non-vehicle images |
+| Rear<->RearLeft/RearRight confusion | Angle ambiguity |
+
+**Interview Q: What insights did you get from the confusion matrix?**
+> 1. The model confuses FrontLeft and FrontRight most often - makes sense since they're mirror images
+> 2. Background has the lowest F1 (0.56) because it's a catch-all class with varied appearances
+> 3. RearLeft and RearRight have high F1 (0.91) because rear views have distinctive features like tail lights
+
+**Interview Q: How would you use this visualization to improve the model?**
+> 1. Identify weak classes (Background, Front) and collect more training data
+> 2. For confused pairs (FrontLeft/FrontRight), consider adding more distinguishing augmentation
+> 3. If a class is never predicted, check for label imbalance
+> 4. If errors are random across all classes, the model needs more capacity
+
+
+---
+
+## 12. Training Visualizations
+
+The training script automatically generates two visualizations after training completes.
+
+### Training Curves (	raining_curves.png)
+
+`python
+def plot_training_history(history1, history2, save_path='training_curves.png'):
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    
+    # Combine both phases with phase separator
+    acc1 = history1.history['accuracy']
+    val_acc1 = history1.history['val_accuracy']
+    acc2 = history2.history['accuracy']
+    val_acc2 = history2.history['val_accuracy']
+    
+    all_acc = acc1 + acc2
+    all_val_acc = val_acc1 + val_acc2
+    epochs = range(1, len(all_acc) + 1)
+    phase1_end = len(acc1)
+`
+
+**What this shows:**
+- **Left plot**: Training and validation accuracy over both phases
+- **Right plot**: Training and validation loss over both phases
+- **Vertical dashed line**: Marks the transition from Phase 1 (frozen backbone) to Phase 2 (fine-tuning)
+
+**How to interpret:**
+- If training acc >> validation acc: Overfitting
+- If both increase together: Healthy training
+- If Phase 2 causes a spike then improvement: Normal fine-tuning behavior
+- If Phase 2 causes divergence: Learning rate too high
+
+**Interview Q: Why plot both phases together?**
+> It gives a complete picture of the training trajectory. The vertical line shows exactly when fine-tuning began, and you can see if the model improved or degraded from unfreezing the backbone.
+
+### Confusion Matrix (confusion_matrix.png)
+
+`python
+def plot_confusion_matrix(y_true, y_pred, classes, save_path='confusion_matrix.png'):
+    cm = confusion_matrix(y_true, y_pred)
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                xticklabels=classes, yticklabels=classes)
+`
+
+**What this shows:**
+- Rows: Actual class labels
+- Columns: Predicted class labels
+- Diagonal: Correct predictions (should be high)
+- Off-diagonal: Misclassifications (shows confusion patterns)
+
+**How to interpret our results:**
+
+| Pattern | What it means |
+|---------|---------------|
+| Strong diagonal | Model distinguishes classes well |
+| FrontLeft vs FrontRight confusion | Expected - similar visual features |
+| Background low recall | Model struggles to identify non-vehicle images |
+| Rear vs RearLeft/RearRight confusion | Angle ambiguity |
+
+**Interview Q: What insights did you get from the confusion matrix?**
+> 1. The model confuses FrontLeft and FrontRight most often - makes sense since they are mirror images
+> 2. Background has the lowest F1 (0.56) because it is a catch-all class with varied appearances
+> 3. RearLeft and RearRight have high F1 (0.91) because rear views have distinctive features like tail lights
+
+**Interview Q: How would you use this visualization to improve the model?**
+> 1. Identify weak classes (Background, Front) and collect more training data
+> 2. For confused pairs (FrontLeft/FrontRight), consider adding more distinguishing augmentation
+> 3. If a class is never predicted, check for label imbalance
+> 4. If errors are random across all classes, the model needs more capacity
