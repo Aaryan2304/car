@@ -21,13 +21,13 @@
 
 **Assignment Goal**: Build an edge-deployable image classifier that identifies vehicle viewpoints from 7 categories: Front, FrontLeft, FrontRight, Rear, RearLeft, RearRight, and Background.
 
-**Final Results (After Logo Removal from Voting)**:
-- Test Accuracy: **85.2%** (+1.0% improvement)
-- Macro F1 Score: **0.819** (+0.005)
-- Weighted F1 Score: **0.854** (+0.011)
+**Final Results (With Safe Augmentations)**:
+- Test Accuracy: **86.18%** (+1.0% from augmentation)
+- Macro F1 Score: **0.832**
+- Weighted F1 Score: **0.861**
 - TFLite Model Size: **4.57 MB**
 - SavedModel ↔ TFLite Agreement: **99.0%**
-- Average Prediction Confidence: **99.81%**
+- Average Prediction Confidence: **99.39%**
 - Inference Time: ~15-20ms on mobile (TFLite)
 
 **Why This Matters for ClearQuote**:
@@ -400,28 +400,32 @@ Non-trainable params: ~220,000 (BatchNorm layers only)
 
 ```python
 def create_data_augmentation():
-    """Create data augmentation layer for training"""
+    """
+    Create data augmentation layer for training.
+    
+    Only color/lighting augmentations are used - these don't change viewpoint.
+    Geometric transforms (flip, rotation) are avoided because they would
+    change FrontLeft→FrontRight without proper label swapping.
+    """
     return keras.Sequential([
-        layers.RandomFlip("horizontal"),  # Flip left-right
-        layers.RandomRotation(0.05),      # ±18 degrees (0.05 × 360°)
-        layers.RandomZoom(0.1),           # ±10% zoom
-        layers.RandomBrightness(0.1),     # ±10% brightness
-        layers.RandomContrast(0.1),       # ±10% contrast
+        layers.RandomBrightness(0.2),    # ±20% brightness variation
+        layers.RandomContrast(0.2),      # ±20% contrast variation
+        layers.RandomZoom(0.05),         # ±5% zoom (very conservative)
     ], name="data_augmentation")
 ```
 
-**Note**: This augmentation layer is defined but **minimally used** in the current implementation. Here's why:
+**Result**: Adding safe augmentations improved accuracy from **85.18% → 86.18%** (+1.0%)
 
-### Why We Kept Augmentation Minimal
+### Why We Use Only Color/Lighting Augmentations
 
-| Augmentation | Risk for Viewpoint Classification | Decision |
-|--------------|-----------------------------------|----------|
-| **Horizontal Flip** | Swaps FrontLeft ↔ FrontRight, RearLeft ↔ RearRight | ⚠️ Requires label swapping logic |
-| **Rotation** | Heavy rotation confuses front vs side | ✅ Light (±18°) is safe |
-| **Zoom** | Can crop out distinguishing features | ✅ Light (±10%) is safe |
-| **Brightness** | Simulates lighting conditions | ✅ Safe and helpful |
-| **Contrast** | Simulates camera differences | ✅ Safe and helpful |
-| **Vertical Flip** | Cars don't appear upside down | ❌ Never use |
+| Augmentation | Safe? | Reason | Decision |
+|--------------|-------|--------|----------|
+| **RandomBrightness** | ✅ | Simulates lighting conditions | Used (±20%) |
+| **RandomContrast** | ✅ | Simulates camera differences | Used (±20%) |
+| **RandomZoom** | ⚠️ | Large zooms lose context | Conservative (±5%) |
+| **Horizontal Flip** | ❌ | Swaps FrontLeft ↔ FrontRight | Avoided |
+| **Rotation** | ❌ | Changes perceived viewpoint | Avoided |
+| **Vertical Flip** | ❌ | Cars don't appear upside down | Never use |
 
 ### The Horizontal Flip Problem
 
@@ -3403,11 +3407,12 @@ def generate_gradcam(model, image, class_idx=None):
 - Phase 1: 20 epochs, LR=1e-3, backbone frozen
 - Phase 2: 15 epochs, LR=1e-4, BN frozen
 - Class weights for imbalance, EarlyStopping patience=7
+- Safe augmentations: RandomBrightness(0.2), RandomContrast(0.2), RandomZoom(0.05)
 
-**Results (After Logo Removal)**:
-- 85.2% accuracy, 0.819 macro F1, 0.854 weighted F1
-- Best: RearLeft (F1=0.897), Worst: Background (F1=0.596)
-- 99% TFLite agreement, 99.81% avg confidence
+**Results (With Safe Augmentations)**:
+- 86.18% accuracy, 0.832 macro F1, 0.861 weighted F1
+- Best: RearRight (F1=0.911), Worst: Background (F1=0.703)
+- 99% TFLite agreement, 99.39% avg confidence
 
 **Key Insights**:
 - Freeze BatchNorm during fine-tuning
@@ -3415,6 +3420,7 @@ def generate_gradcam(model, image, class_idx=None):
 - Voting heuristics for label extraction from part annotations
 - Remove ambiguous parts (logo) from voting for better data quality
 - Simple head for small datasets
+- Use only color/lighting augmentations (avoid geometric transforms that change viewpoint)
 
 **Code Responsible for Metrics**:
 - Accuracy calculation: `sklearn.metrics.accuracy_score(y_true, y_pred)` in `evaluate_model()`

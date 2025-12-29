@@ -52,14 +52,18 @@ def load_labels():
 # DATA PIPELINE WITH KERAS PREPROCESSING
 
 def create_data_augmentation():
-    """Create data augmentation layer for training"""
+    """
+    Create data augmentation layer for training.
+    """
     return keras.Sequential([
-        layers.RandomFlip("horizontal"),  # We'll handle label swap separately
-        layers.RandomRotation(0.05),
-        layers.RandomZoom(0.1),
-        layers.RandomBrightness(0.1),
-        layers.RandomContrast(0.1),
+        layers.RandomBrightness(0.2),    # ±20% brightness variation
+        layers.RandomContrast(0.2),      # ±20% contrast variation
+        layers.RandomZoom(0.05),         # ±5% zoom
     ], name="data_augmentation")
+
+
+# Global augmentation layer
+augmentation_layer = None
 
 
 def load_image(filepath, label):
@@ -68,6 +72,15 @@ def load_image(filepath, label):
     img = tf.image.decode_jpeg(img, channels=3)
     img = tf.image.resize(img, [IMG_SIZE, IMG_SIZE])
     img = tf.cast(img, tf.float32)
+    return img, label
+
+
+def augment_image(img, label):
+    """Apply augmentation to a single image."""
+    global augmentation_layer
+    if augmentation_layer is None:
+        augmentation_layer = create_data_augmentation()
+    img = augmentation_layer(img, training=True)
     return img, label
 
 
@@ -94,6 +107,11 @@ def create_dataset(csv_path, classes, is_training=False):
         dataset = dataset.shuffle(buffer_size=len(filepaths), reshuffle_each_iteration=True)
     
     dataset = dataset.map(load_image, num_parallel_calls=tf.data.AUTOTUNE)
+    
+    # Apply augmentation only during training
+    if is_training:
+        dataset = dataset.map(augment_image, num_parallel_calls=tf.data.AUTOTUNE)
+    
     dataset = dataset.map(preprocess_for_mobilenet, num_parallel_calls=tf.data.AUTOTUNE)
     dataset = dataset.batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
     

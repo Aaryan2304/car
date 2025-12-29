@@ -17,9 +17,9 @@ The assignment explicitly asks for an inference script that:
 
 ### Current Model Performance
 
-After the logo removal improvement:
-- **Average prediction confidence: 99.81%** (very high certainty)
-- **Test accuracy: 85.2%**
+With safe augmentations (RandomBrightness, RandomContrast, RandomZoom):
+- **Average prediction confidence: 99.39%** (very high certainty)
+- **Test accuracy: 86.18%**
 - **TFLite agreement: 99.0%**
 
 ### Output Format

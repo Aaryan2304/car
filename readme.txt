@@ -62,17 +62,24 @@ Two-phase transfer learning:
 
 Uses balanced class weights, EarlyStopping (patience=7), ReduceLROnPlateau.
 
+Data Augmentation (training only):
+- RandomBrightness(0.2): ±20% brightness variation
+- RandomContrast(0.2): ±20% contrast variation  
+- RandomZoom(0.05): ±5% zoom (conservative)
+
+Note: Geometric transforms (flip, rotation) are avoided as they would change viewpoint labels (FrontLeft→FrontRight) without proper label swapping.
+
 6: Results
 
 | Metric | Value |
 |--------|-------|
-| Test Accuracy | 85.18% |
-| Macro F1 | 0.819 |
-| Weighted F1 | 0.854 |
-| TFLite Agreement | 100% |
+| Test Accuracy | 86.18% |
+| Macro F1 | 0.832 |
+| Weighted F1 | 0.861 |
+| TFLite Agreement | 99.0% |
 | Model Size | 4.57 MB |
 
-Per-class F1: Front 0.82, FrontLeft 0.89, FrontRight 0.84, Rear 0.81, RearLeft 0.91, RearRight 0.91, Background 0.56
+Per-class F1: Front 0.74, FrontLeft 0.88, FrontRight 0.88, Rear 0.82, RearLeft 0.89, RearRight 0.91, Background 0.70
 
 7: Label Extraction
 

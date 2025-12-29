@@ -154,9 +154,9 @@ def main():
     agreement = validate_conversion(saved_model, tflite_path)
     
     if agreement >= 95:
-        print(f"\n✓ PASSED ({agreement:.1f}% agreement)")
+        print(f"\n PASSED ({agreement:.1f}% agreement)")
     else:
-        print(f"\n✗ WARNING: only {agreement:.1f}% agreement")
+        print(f"\n WARNING: only {agreement:.1f}% agreement")
     
     print(f"\nOutputs: {tflite_model}, {saved_model}/labels.txt")
 
