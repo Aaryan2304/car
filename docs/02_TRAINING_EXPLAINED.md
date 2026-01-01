@@ -23,6 +23,8 @@ Instead of training a CNN from scratch (which requires millions of images), I st
 | Training Stability | ⭐⭐⭐ Very stable | ⭐ Unstable | ⭐⭐ Moderate | ⭐⭐⭐ Stable |
 | Our Test Accuracy | **85.2%** | 11% (failed) | Not tested | Too large |
 
+MobileNetV2 is a highly efficient convolutional neural network architecture developed by Google specifically for mobile and embedded devices. It is optimized for on-device inference by balancing high accuracy with low computational cost and a small memory footprint. This makes it ideal for running computer vision tasks locally on smartphones without requiring a constant network connection. 
+
 **Final Choice: MobileNetV2** - Best balance of accuracy, speed, and training stability.
 
 **The MobileNetV3 Failure - What Happened:**
@@ -58,21 +60,25 @@ base_model = keras.applications.MobileNetV3Small(
 ```
 Pretrained Backbone (excellent features) + Random Head (garbage weights)
                               ↓
-Train everything together with high learning rate
+        Train everything together with high learning rate
                               ↓
-Random head gradients corrupt backbone features
+        Random head gradients corrupt backbone features
                               ↓
-Poor final accuracy
+                    Poor final accuracy
 ```
+
+**Note:** If we trained end-to-end from the start, the random classification head would produce noisy gradients that could "destroy" the useful features learned by the backbone on ImageNet.
+
+**Meaning of the Head:** The neural network head refers to the final layer or set of layers in a neural network that produces the desired output for a specific task. It sits on top of the network's main body, often called the "backbone" or "encoder," which is responsible for extracting features from the input data. 
 
 **Two-Phase Solution:**
 ```
-Phase 1: Freeze backbone, train head
-- Head learns to use existing features
+Phase 1: Freeze backbone (backbone used is MobileNetV2 pretrained on ImageNet), train head
+- Head learns to use existing features from ImageNet
 - Backbone stays protected
 - Result: ~61% accuracy
 
-Phase 2: Unfreeze backbone (keep BatchNorm frozen)
+Phase 2: Unfreeze backbone (keep BatchNorm frozen because of small dataset), fine-tune entire model
 - Head now produces meaningful gradients
 - Backbone adapts to vehicle domain
 - Result: ~85% accuracy
@@ -81,13 +87,13 @@ Phase 2: Unfreeze backbone (keep BatchNorm frozen)
 **Phase 1: Feature Extraction (Frozen Backbone)**
 - Freeze all MobileNetV2 layers
 - Train only the classification head
-- High learning rate (1e-3)
+- High learning rate (1e-3) because backbone is frozen
 - 20 epochs
 
 **Phase 2: Fine-Tuning (Unfrozen Backbone)**
 - Unfreeze backbone layers
 - **Keep BatchNorm frozen** (critical!)
-- Low learning rate (1e-4)
+- Low learning rate (1e-4) to avoid destroying pretrained features
 - 15 epochs
 
 **Training Progress (With Safe Augmentations):**
@@ -101,6 +107,12 @@ Phase 2: Unfreeze backbone (keep BatchNorm frozen)
 | 2 | 15 | ~99.7% | ~83% | Phase 2 complete |
 
 **Final Test Set: 86.18% accuracy** (Macro F1: 0.832, Weighted F1: 0.861)
+
+**Difference between Macro F1 and Weighted F1 and their relation with F1:** Macro F1 is the unweighted mean of F1 scores for each class, treating all classes equally. Weighted F1 accounts for class imbalance by weighting each class's F1 score by its support (number of true instances). Both metrics provide insights into model performance, with Macro F1 highlighting performance on minority classes and Weighted F1 reflecting overall accuracy.
+
+**Reason for using Macro F1 and Weighted F1 instead of just F1:** F1 score is a harmonic mean of precision and recall for a single class. In multi-class settings, Macro F1 and Weighted F1 extend this concept to evaluate overall model performance across all classes, addressing class imbalance and providing a more comprehensive assessment.
+
+**Reason for using Macro F1 and Weighted F1 instead of just accuracy:** Accuracy can be misleading in imbalanced datasets because it may be dominated by the majority class. Macro F1 ensures each class is equally important, while Weighted F1 balances this by considering class frequency. Together, they provide a more comprehensive evaluation.
 
 ### Understanding the Train-Validation Gap (Overfitting Analysis)
 
@@ -204,6 +216,8 @@ def preprocess_for_efficientnet(img, label):
     img = (img / 127.5) - 1.0
     return img, label
 ```
+
+**Normalization Explanation:** Normalization means adjusting pixel values to a standard range. In ML, this is a feature scaling technique that rescales numerical data to a common range, typically 0 to 1 (Min-Max Scaling), to prevent features with larger scales from dominating the model
 
 **Interview Q: Why normalize to [-1, 1] instead of [0, 1]?**
 > MobileNetV2 was pretrained with this normalization. Using [0, 1] would shift all input values, making the pretrained weights ineffective. **The inference preprocessing must match training exactly.**

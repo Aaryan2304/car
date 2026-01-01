@@ -3489,17 +3489,32 @@ def generate_gradcam(model, image, class_idx=None):
 
 ### Inference Visualizations
 
-**Generated Files** (with `--visualize` flag):
-- `prediction_samples/high_confidence.png` - 9 most confident predictions
-- `prediction_samples/low_confidence.png` - 9 least confident predictions
+The `--visualize` flag generates prediction sample grids. There are two modes:
 
-**Interview Q: Why show high AND low confidence samples?**
-> **High confidence samples** validate that the model is certain about clear cases. If a high-confidence prediction is wrong, it indicates a systematic bias or labeling error.
+**Mode 1: Confidence-based (default)**
+```bash
+python test_predict.py --model models/model.tflite --labels models/saved_model/labels.txt --images dataset/folder --visualize
+```
+- `prediction_samples/high_confidence.png` - 10 most confident predictions
+- `prediction_samples/low_confidence.png` - 10 least confident predictions
+
+**Mode 2: Ground truth comparison**
+```bash
+python test_predict.py --model ... --images dataset --ground-truth test.csv --visualize
+```
+- `prediction_samples/correct_predictions.png` - Correctly classified images
+- `prediction_samples/incorrect_predictions.png` - Misclassified images with `Pred: X | Actual: Y`
+
+**Interview Q: Why have both visualization modes?**
+> In production, you don't have labels - you can only show confidence levels. During evaluation, you DO have ground truth and want to see actual mistakes. The `--ground-truth` flag enables richer debugging by showing what the model gets wrong and what it should have predicted.
+
+**Interview Q: Why is the incorrect predictions grid more valuable?**
+> It directly shows failure patterns. You might notice:
+> - All FrontLeft misses are actually FrontRight (mirror confusion)
+> - Background errors are often partial car views
+> - Certain car colors or lighting conditions cause problems
 >
-> **Low confidence samples** reveal edge cases: unusual angles, poor lighting, partial occlusion. These are candidates for:
-> 1. Additional training data collection
-> 2. Confidence thresholding in production (reject uncertain predictions)
-> 3. Human review workflows
+> This is actionable - you can collect more data for these specific cases.
 
 **Interview Q: How would you use these in production?**
 > 1. **Confidence Monitoring**: Track average confidence over time - sudden drops signal data drift
@@ -3520,8 +3535,9 @@ def plot_confusion_matrix(y_true, y_pred, classes, save_path='confusion_matrix.p
     # Uses seaborn heatmap for professional visualization
 
 # Prediction samples (test_predict.py)
-def visualize_predictions(df, images_path, output_dir='prediction_samples'):
-    # Sorts by confidence, creates 3x3 grids of samples
+def visualize_predictions(df, images_path, ground_truth_df=None, output_dir='prediction_samples'):
+    # If ground_truth_df provided: shows correct vs incorrect
+    # Otherwise: sorts by confidence, creates grids of samples
 ```
 
 **Libraries Used**: matplotlib (plots), seaborn (heatmaps), PIL (image loading)

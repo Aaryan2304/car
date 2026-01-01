@@ -542,53 +542,86 @@ The inference script supports a `--visualize` flag that generates sample predict
 
 ### Usage
 
+**Without ground truth** (confidence-based):
 ```bash
 python test_predict.py --model models/model.tflite --labels models/saved_model/labels.txt --images dataset/folder --visualize
 ```
 
+**With ground truth** (correct/incorrect):
+```bash
+python test_predict.py --model models/model.tflite --labels models/saved_model/labels.txt --images dataset --ground-truth test.csv --visualize
+```
+
 ### What Gets Generated
 
-When `--visualize` is enabled, the script creates a `prediction_samples/` folder with:
+The visualization mode depends on whether you provide ground truth labels:
 
-1. **`high_confidence.png`** - Grid of 9 images with highest confidence scores
-2. **`low_confidence.png`** - Grid of 9 images with lowest confidence scores
+**Mode 1: No ground truth (default)**
+Creates `prediction_samples/` folder with:
+1. **`high_confidence.png`** - Grid of images with highest confidence scores
+2. **`low_confidence.png`** - Grid of images with lowest confidence scores
+
+**Mode 2: With `--ground-truth` CSV**
+Creates `prediction_samples/` folder with:
+1. **`correct_predictions.png`** - Grid of correctly classified images
+2. **`incorrect_predictions.png`** - Grid of misclassified images showing `Pred: X | Actual: Y`
 
 ### The Visualization Function
 
 ```python
-def visualize_predictions(df, images_path, output_dir='prediction_samples'):
-    os.makedirs(output_dir, exist_ok=True)
+def visualize_predictions(df, images_path, ground_truth_df=None, output_dir='prediction_samples'):
+    """
+    Save prediction grids for review.
     
-    # Sort by confidence score
-    high_conf = df.nlargest(9, 'score')
-    low_conf = df.nsmallest(9, 'score')
+    If ground_truth_df is provided: shows correct vs incorrect predictions
+    Otherwise: shows high vs low confidence predictions
+    """
+    Path(output_dir).mkdir(exist_ok=True)
     
-    for subset, name in [(high_conf, 'high_confidence'), (low_conf, 'low_confidence')]:
-        fig, axes = plt.subplots(3, 3, figsize=(12, 12))
-        for idx, (ax, (_, row)) in enumerate(zip(axes.flat, subset.iterrows())):
-            img_path = os.path.join(images_path, row['image_name'])
-            img = Image.open(img_path)
-            ax.imshow(img)
-            ax.set_title(f"{row['prediction']}\n{row['score']:.1%}", fontsize=10)
-            ax.axis('off')
-        plt.savefig(os.path.join(output_dir, f'{name}.png'), dpi=150, bbox_inches='tight')
-        plt.close()
+    # If ground truth available, show correct vs incorrect
+    if ground_truth_df is not None:
+        # Build filename -> label lookup
+        gt_lookup = {Path(row['filepath']).name: row['label'] for _, row in ground_truth_df.iterrows()}
+        
+        # Add actual labels and compare
+        valid_df['actual'] = valid_df['image_name'].map(gt_lookup)
+        valid_df['correct'] = valid_df['prediction'] == valid_df['actual']
+        
+        correct = labeled[labeled['correct']]
+        incorrect = labeled[~labeled['correct']]
+        
+        make_grid(correct_sample, 'Correct Predictions', 'correct_predictions.png')
+        make_grid(incorrect_sample, 'Incorrect Predictions', 'incorrect_predictions.png', show_actual=True)
+    else:
+        # Fallback: high/low confidence
+        make_grid(top_conf, 'High Confidence Predictions', 'high_confidence.png')
+        make_grid(low_conf, 'Low Confidence Predictions', 'low_confidence.png')
 ```
+
+### Why Ground Truth Mode is Better for Evaluation
+
+| Mode | What it Shows | Best For |
+|------|---------------|----------|
+| Confidence-based | High/low certainty | Production inference on unlabeled images |
+| Ground truth | Correct/incorrect | Model evaluation, debugging, identifying failure patterns |
+
+**Interview Q: Why have both modes?**
+> In production, you don't have ground truth labels - you just want to flag uncertain predictions for human review. But during development and evaluation, you DO have labels and want to see what the model actually gets wrong. The `--ground-truth` flag enables this richer evaluation mode.
 
 ### Why This Matters
 
-**High Confidence Grid:**
-- Shows what the model is most certain about
-- Verifies the model is confident on clearly visible viewpoints
-- If wrong predictions appear here with high confidence, indicates systematic issues
+**Correct Predictions Grid:**
+- Confirms the model works on typical examples
+- Shows variety of correctly classified viewpoints
+- Builds confidence in model performance
 
-**Low Confidence Grid:**
-- Shows where the model struggles
-- Helps identify edge cases (partial views, unusual angles, poor lighting)
-- These are candidates for additional training data collection
+**Incorrect Predictions Grid:**
+- **Most valuable for debugging** - shows actual failures
+- Labels show both prediction AND ground truth
+- Helps identify patterns: specific angles, lighting, car types that fail
 
 **Interview Q: Why visualize predictions instead of just looking at accuracy numbers?**
-> Numbers tell you WHAT is wrong, visualizations tell you WHY. By seeing the actual images where the model struggles, you can identify patterns like lighting, angle, or occlusion issues that would not be apparent from a confusion matrix alone.
+> Numbers tell you WHAT is wrong, visualizations tell you WHY. By seeing the actual images where the model fails, you can identify patterns like lighting, angle, or occlusion issues that would not be apparent from a confusion matrix alone.
 
 **Interview Q: How would you use these visualizations in production monitoring?**
 > 1. Track average confidence over time - sudden drops indicate distribution shift

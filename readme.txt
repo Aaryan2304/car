@@ -34,6 +34,10 @@ python test_predict.py --model models/model.tflite \
                        --images dataset/5e9112c35026365e15eb871b
 ```
 
+Optional flags:
+  --visualize           Save prediction sample grids to prediction_samples/
+  --ground-truth CSV    Use labels from CSV to show correct/incorrect (instead of confidence)
+
 3. Project Structure:
 
 ```

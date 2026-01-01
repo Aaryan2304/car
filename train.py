@@ -135,8 +135,6 @@ def compute_class_weights(csv_path, classes):
 # MODEL BUILDING
 
 def build_model(num_classes):
-    # Tried MobileNetV3-Small first but got only 11% acc - V2 is more stable
-    # TODO: revisit V3 with different LR schedule?
     base_model = keras.applications.MobileNetV2(
         input_shape=(IMG_SIZE, IMG_SIZE, 3),
         include_top=False,
